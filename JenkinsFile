@@ -1,0 +1,48 @@
+pipeline{
+node {
+    // This var (VERSION) should be set by Git hook data / pom.xml content.
+    withEnv(['VERSION=1.2.0']) {
+
+   stage('Preparation') { 
+      git 'https://github.com/MYUSERNAME/REPO.git'           
+      mvnHome = tool 'M3'
+   }
+
+   stage('Build') {
+         sh "'${mvnHome}/bin/mvn' -Dmaven.test.failure.ignore clean package"
+
+   }
+
+   stage('Results') {
+      junit '**/target/surefire-reports/TEST-*.xml'
+      archive 'target/*.jar'
+   }
+
+
+    stage('SonarQube analysis') {
+    withSonarQubeEnv('MySonarQubeServer') {
+      // requires SonarQube Scanner for Maven 3.2+
+      sh 'mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.2:sonar'
+    }
+  }
+
+   stage('Upload War') {
+      nexusArtifactUploader artifacts: [[artifactId: 'ID', classifier: 'classes', file: './web/target/time-tracker-web-0.3.1.war', type: 'war']], credentialsId: '69715e3f-b034-4562-b4d6-648903f1991d', groupId: 'homeTask', nexusUrl: 'localhost:8081', nexusVersion: 'nexus3', protocol: 'http', repository: 'my-repo', version: '1.2.0'
+
+   }
+
+   stage('Build Image') {
+      sh 'cp ./web/target/time-tracker-web-0.3.1.war /opt/pipeline-files'
+      sh 'cd /opt/pipeline-files && docker build -t webserver .'
+
+   }
+
+  stage('Upload Image') {
+    sh 'docker login -u admin -p admin123 10.142.0.2:18444'
+    sh 'docker tag webserver 10.142.0.2:18444/webserver:$VERSION'
+    sh 'docker push 10.142.0.2:18444/webserver:$VERSION'
+   }
+
+    }  
+}
+}
